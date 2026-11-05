@@ -1,0 +1,67 @@
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+
+st.set_page_config(page_title="공부 시간과 시험 점수", page_icon="📚", layout="wide")
+
+# 내 GitHub 저장소에 올린 뒤, 아래 주소를 내 raw 주소로 바꾸세요.
+# 예: https://raw.githubusercontent.com/내아이디/저장소이름/main/data/study_scores.csv
+DATA_URL = "data/study_scores.csv"
+
+
+@st.cache_data
+def load_data(source):
+    return pd.read_csv(source, encoding="utf-8")
+
+
+st.title("📚 공부 시간과 시험 점수")
+st.caption("공부를 많이 하면 점수가 정말 오를까? 데이터로 확인해 봅니다.")
+
+uploaded = st.sidebar.file_uploader("내 CSV 올리기 (열 이름: 공부시간, 시험점수)", type="csv")
+df = load_data(uploaded) if uploaded else load_data(DATA_URL)
+
+if not {"공부시간", "시험점수"}.issubset(df.columns):
+    st.error("CSV에 '공부시간', '시험점수' 열이 있어야 합니다.")
+    st.stop()
+
+df = df.dropna(subset=["공부시간", "시험점수"])
+X = df[["공부시간"]]
+y = df["시험점수"]
+model = LinearRegression().fit(X, y)
+r2 = r2_score(y, model.predict(X))
+corr = df["공부시간"].corr(df["시험점수"])
+
+tab1, tab2, tab3 = st.tabs(["데이터 보기", "관계 분석", "점수 예측"])
+
+with tab1:
+    c1, c2, c3 = st.columns(3)
+    c1.metric("학생 수", f"{len(df)}명")
+    c2.metric("평균 공부시간", f"{df['공부시간'].mean():.1f}시간")
+    c3.metric("평균 시험점수", f"{df['시험점수'].mean():.1f}점")
+    st.dataframe(df.describe().round(2), use_container_width=True)
+    st.dataframe(df.head(10), use_container_width=True)
+
+with tab2:
+    c1, c2, c3 = st.columns(3)
+    c1.metric("상관계수", f"{corr:.2f}")
+    c2.metric("1시간 더 공부하면", f"+{model.coef_[0]:.1f}점")
+    c3.metric("설명력(R²)", f"{r2:.2f}")
+
+    xs = pd.DataFrame({"공부시간": [df["공부시간"].min(), df["공부시간"].max()]})
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df["공부시간"], y=df["시험점수"], mode="markers", name="학생"))
+    fig.add_trace(go.Scatter(x=xs["공부시간"], y=model.predict(xs), mode="lines", name="회귀선"))
+    fig.update_layout(xaxis_title="공부시간(시간)", yaxis_title="시험점수(점)")
+    st.plotly_chart(fig, use_container_width=True)
+
+    hist = go.Figure(go.Histogram(x=df["시험점수"], nbinsx=10))
+    hist.update_layout(title="시험점수 분포", xaxis_title="시험점수", yaxis_title="학생 수")
+    st.plotly_chart(hist, use_container_width=True)
+
+with tab3:
+    hours = st.slider("하루 공부 시간", 0.0, 12.0, 5.0, 0.5)
+    pred = float(model.predict(pd.DataFrame({"공부시간": [hours]}))[0])
+    st.metric(f"{hours}시간 공부했을 때 예상 점수", f"{max(0, min(100, pred)):.0f}점")
+    st.info("이 예측은 주어진 데이터의 평균적인 경향일 뿐, 개인의 점수를 보장하지 않습니다.")
